@@ -27,7 +27,6 @@ Scripts are organized by use case:
 
 ```
 ├── shutters/           # Roller shutter control
-├── heating/            # Heating automation
 ├── lighting/           # Light control
 ├── notifications/      # Alert and notification scripts
 ├── security/           # Security automation
@@ -78,9 +77,6 @@ Automated roller shutter control based on time, sun position, or weather conditi
 - Wind protection automation
 
 ---
-
-### 🔥 Heating
-Temperature control and optimization based on window states and presence.
 
 **Documentation:** [heating/README.md](heating/README.md) | [🇩🇪 German](heating/README_de.md)
 

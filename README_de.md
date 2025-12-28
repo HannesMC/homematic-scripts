@@ -79,9 +79,6 @@ Automatisierte Rollladensteuerung basierend auf Zeit, Sonnenstand oder Wetterbed
 
 ---
 
-### 🔥 Heating (Heizung)
-Temperaturregelung und -optimierung basierend auf Fensterzuständen und Anwesenheit.
-
 **Dokumentation:** [heating/README_de.md](heating/README_de.md)
 
 **Beispiel-Skripte:**
