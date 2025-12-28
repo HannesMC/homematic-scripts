@@ -78,15 +78,6 @@ Automated roller shutter control based on time, sun position, or weather conditi
 
 ---
 
-**Documentation:** [heating/README.md](heating/README.md) | [🇩🇪 German](heating/README_de.md)
-
-**Example Scripts:**
-- Window-open detection (automatically turn off heating)
-- Night setback
-- Presence-based control
-
----
-
 ### 💡 Lighting
 Automated light control using motion sensors and twilight detection.
 

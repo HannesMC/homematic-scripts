@@ -27,7 +27,6 @@ Die Skripte sind nach Anwendungsfall organisiert:
 
 ```
 ├── shutters/           # Rollladen-Steuerung
-├── heating/            # Heizungsautomatisierung
 ├── lighting/           # Lichtsteuerung
 ├── notifications/      # Benachrichtigungs- und Alarm-Skripte
 ├── security/           # Sicherheitsautomatisierung
@@ -77,14 +76,6 @@ Automatisierte Rollladensteuerung basierend auf Zeit, Sonnenstand oder Wetterbed
 - Sonnenpositions-basierte Steuerung
 - Windschutz-Automatik
 
----
-
-**Dokumentation:** [heating/README_de.md](heating/README_de.md)
-
-**Beispiel-Skripte:**
-- Fenster-offen-Erkennung (Heizung automatisch ausschalten)
-- Nachtabsenkung
-- Anwesenheitsbasierte Steuerung
 
 ---
 
