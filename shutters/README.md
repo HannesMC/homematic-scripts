@@ -1,5 +1,7 @@
 # Shutter & Blind Control Scripts
 
+🇬🇧 English Version | [🇩🇪 Deutsche Version](README_de.md)
+
 Scripts for automated control of HomeMatic IP shutters and blinds.
 
 ---
