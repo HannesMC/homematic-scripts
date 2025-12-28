@@ -1,0 +1,14 @@
+# HomeMatic Script Language Detection
+# Treat .hms files as JavaScript for syntax highlighting
+*.hms linguist-language=JavaScript
+
+# Ensure consistent line endings
+*.hms text eol=lf
+*.md text eol=lf
+
+# Documentation files
+*.md text
+*.txt text
+
+# License files
+LICENSE text
