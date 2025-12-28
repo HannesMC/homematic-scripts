@@ -1,0 +1,416 @@
+!-----------------------------------------------------------------------
+! HOMEMATIC SHUTTER/BLIND CONTROL - UP (100% / OPEN)
+!-----------------------------------------------------------------------
+! This script controls shutters and blinds by automatically detecting
+! actuators based on configurable filters (functions/trades, rooms, device types)
+! and sets LEVEL to 1.0 (100% = fully open/up).
+! Only Channel 4 (main actuator channel) is controlled.
+!
+!-----------------------------------------------------------------------
+! REQUIREMENTS & PREREQUISITES
+!-----------------------------------------------------------------------
+! 1. DEVICE TYPES SUPPORTED:
+!    - HmIP-BROLL (Shutter Actuator)
+!    - HmIP-BBL (Blind Actuator)
+!    - HmIP-FROLL (Shutter Actuator Flush-mount)
+!    - HmIP-FBL (Blind Actuator Flush-mount)
+!    - Any other HomeMatic IP device with LEVEL datapoint on Channel 4
+!
+! 2. CCU CONFIGURATION REQUIRED:
+!    - Actuators must be assigned to FUNCTIONS (Gewerke/Trades)
+!      Example functions: "Shutters-GroundFloor", "Blinds-FirstFloor"
+!      Configure in CCU: Settings > Devices > [Device] > Functions
+!    
+!    - Actuators should be assigned to ROOMS (optional filter)
+!      Example rooms: "Living Room", "Kitchen", "Bedroom"
+!      Configure in CCU: Settings > Devices > [Device] > Rooms
+!
+! 3. CHANNEL STRUCTURE:
+!    - Script only controls Channel 4 (main actuator channel)
+!    - Channel 4 must have LEVEL datapoint (standard for shutter/blind actuators)
+!
+! 4. TRIGGERING THIS SCRIPT:
+!    This script does NOT run automatically. Create CCU programs to trigger it:
+!    
+!    Example 1 - Button trigger:
+!      WHEN: Wall button pressed
+!      THEN: Execute this script
+!    
+!    Example 2 - Time-based trigger:
+!      WHEN: Time is 07:00
+!      THEN: Execute this script
+!    
+!    Example 3 - Sensor trigger:
+!      WHEN: Brightness > 10000 lux
+!      THEN: Execute this script
+!    
+!    Example 4 - Voice assistant / external trigger:
+!      Use CCU's HTTP API to execute script via external systems
+!
+! 5. SCRIPT ORGANIZATION:
+!    - You need SEPARATE scripts for each ACTION and FUNCTION combination
+!    - Example structure:
+!      * shutters-groundfloor-UP.hms
+!      * shutters-groundfloor-DOWN.hms
+!      * shutters-firstfloor-UP.hms
+!      * shutters-firstfloor-DOWN.hms
+!      * blinds-office-UP.hms
+!      * blinds-office-DOWN.hms
+!    
+!    Why? CCU programs can only execute ONE script per trigger.
+!    Separate scripts give you maximum flexibility.
+!
+! 6. CREATING A "DOWN" VERSION:
+!    To create a DOWN/CLOSE script:
+!    - Copy this script
+!    - Change: real rTargetLevel = 1.0; → real rTargetLevel = 0.0;
+!    - Adjust comments/names accordingly
+!
+!-----------------------------------------------------------------------
+! USAGE INSTRUCTIONS
+!-----------------------------------------------------------------------
+! 1. Copy this script to a new CCU script
+! 2. Adjust CONFIGURATION section below (filters)
+! 3. Test with bDryRun = true first
+! 4. Create CCU program: WHEN [trigger] THEN execute this script
+! 5. For different areas/functions: Duplicate and reconfigure
+!
+!-----------------------------------------------------------------------
+! CONFIGURATION - Adjust here!
+!-----------------------------------------------------------------------
+
+! FILTER: Functions/Trades (comma-separated, empty = all)
+! Example: "Shutters-GroundFloor,Blinds-GroundFloor" or "" for all
+string sGewerke = "Shutters-GroundFloor,Blinds-GroundFloor";
+
+! FILTER: Rooms (comma-separated, empty = all)
+! Example: "Living Room,Kitchen,Hallway" or "" for all
+string sRaeume = "";
+
+! FILTER: Device types (comma-separated, empty = all)
+! Example: "HmIP-BROLL,HmIP-BBL" or "" for all compatible devices
+string sTypen = "HmIP-BROLL,HmIP-BBL";
+
+! EXCLUSION: Devices to exclude (comma-separated by device name)
+! Example: "Shutter Kitchen,Blind Office" or "" for no exclusions
+string sExclude = "";
+
+! DEBUG MODE: Detailed output (true/false)
+boolean bDebug = true;
+
+! DRY-RUN: Simulation only, no actual control (true/false)
+! Set to true for testing, false for production
+boolean bDryRun = false;
+
+! STATISTICS: Show summary at the end (true/false)
+boolean bShowStats = true;
+
+! ERROR LOGGING: Log failed commands (true/false)
+boolean bErrorLog = true;
+
+!-----------------------------------------------------------------------
+! DO NOT MODIFY BELOW - Script Logic
+!-----------------------------------------------------------------------
+
+! Target value for LEVEL (1.0 = 100% = UP/OPEN)
+real rTargetLevel = 1.0;
+
+! Statistics counters
+integer iFound = 0;
+integer iExcluded = 0;
+integer iSuccess = 0;
+integer iError = 0;
+
+! Objects and variables
+object oGewerk;
+object oRaum;
+object oChannel;
+object oDevice;
+object oDP;
+string sGewerkName;
+string sRaumName;
+string sChannelID;
+string sDeviceType;
+string sDeviceName;
+string sExcludeName;
+boolean bExclude;
+
+! Helper variable for processed channels (prevents duplicates)
+string sProcessedChannels = ",";
+
+if(bDebug) {
+  WriteLine("-------------------------------------------------------");
+  WriteLine("SHUTTER CONTROL: UP (LEVEL = 1.0)");
+  WriteLine("-------------------------------------------------------");
+  WriteLine("Filters:");
+  WriteLine("  Functions: " # sGewerke);
+  WriteLine("  Rooms: " # sRaeume);
+  WriteLine("  Device Types: " # sTypen);
+  WriteLine("  Exclusions: " # sExclude);
+  WriteLine("Dry-Run: " # bDryRun);
+  WriteLine("-------------------------------------------------------");
+}
+
+!-----------------------------------------------------------------------
+! DEVICE COLLECTION
+!-----------------------------------------------------------------------
+
+! Iterate through Functions (if specified)
+if(sGewerke != "") {
+  foreach(sGewerkName, sGewerke.Split(",")) {
+    oGewerk = dom.GetObject(ID_FUNCTIONS).Get(sGewerkName);
+    
+    if(oGewerk) {
+      if(bDebug) { WriteLine(""); WriteLine("Function: " # sGewerkName); }
+      
+      foreach(sChannelID, oGewerk.EnumUsedIDs()) {
+        ! Check if channel already processed (avoid duplicates)
+        if(sProcessedChannels.Find("," # sChannelID # ",") == -1) {
+          oChannel = dom.GetObject(sChannelID);
+          
+          ! Only use Channel 4 (main actuator)
+          if(oChannel.Name().EndsWith(":4")) {
+            oDevice = dom.GetObject(oChannel.Device());
+            sDeviceName = oDevice.Name();
+            sDeviceType = oDevice.HssType();
+            
+            ! Apply device type filter (if specified)
+            if((sTypen == "") || (sTypen.Find(sDeviceType) != -1)) {
+              
+              ! Apply room filter (if specified)
+              boolean bRoomMatch = false;
+              if(sRaeume == "") {
+                bRoomMatch = true;
+              } else {
+                foreach(sRaumName, sRaeume.Split(",")) {
+                  oRaum = dom.GetObject(ID_ROOMS).Get(sRaumName);
+                  if(oRaum) {
+                    if(oRaum.EnumUsedIDs().Find(sChannelID) != -1) {
+                      bRoomMatch = true;
+                    }
+                  }
+                }
+              }
+              
+              if(bRoomMatch) {
+                ! Find LEVEL datapoint
+                oDP = oChannel.DPByHssDP("LEVEL");
+                
+                if(oDP) {
+                  iFound = iFound + 1;
+                  
+                  ! Check exclusion
+                  bExclude = false;
+                  if(sExclude != "") {
+                    foreach(sExcludeName, sExclude.Split(",")) {
+                      if(sDeviceName == sExcludeName) {
+                        bExclude = true;
+                        iExcluded = iExcluded + 1;
+                        if(bDebug) {
+                          WriteLine("  [X] EXCLUDED: " # sDeviceName # " [" # sDeviceType # "]");
+                        }
+                      }
+                    }
+                  }
+                  
+                  ! Execute command (if not excluded)
+                  if(!bExclude) {
+                    sProcessedChannels = sProcessedChannels # sChannelID # ",";
+                    
+                    if(!bDryRun) {
+                      ! Set LEVEL
+                      var bResult = oDP.State(rTargetLevel);
+                      
+                      if(bResult) {
+                        iSuccess = iSuccess + 1;
+                        if(bDebug) {
+                          WriteLine("  [OK] " # sDeviceName # " [" # sDeviceType # "] -> " # rTargetLevel);
+                        }
+                      } else {
+                        iError = iError + 1;
+                        if(bErrorLog) {
+                          WriteLine("  [ERROR] " # sDeviceName # " [" # sDeviceType # "] -> Command failed");
+                        }
+                      }
+                    } else {
+                      iSuccess = iSuccess + 1;
+                      if(bDebug) {
+                        WriteLine("  [DRY] " # sDeviceName # " [" # sDeviceType # "] -> " # rTargetLevel);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      if(bDebug) { WriteLine("WARNING: Function '" # sGewerkName # "' not found!"); }
+    }
+  }
+}
+
+! Iterate through Rooms (if NO functions specified and rooms specified)
+if((sGewerke == "") && (sRaeume != "")) {
+  foreach(sRaumName, sRaeume.Split(",")) {
+    oRaum = dom.GetObject(ID_ROOMS).Get(sRaumName);
+    
+    if(oRaum) {
+      if(bDebug) { WriteLine(""); WriteLine("Room: " # sRaumName); }
+      
+      foreach(sChannelID, oRaum.EnumUsedIDs()) {
+        if(sProcessedChannels.Find("," # sChannelID # ",") == -1) {
+          oChannel = dom.GetObject(sChannelID);
+          
+          ! Only use Channel 4
+          if(oChannel.Name().EndsWith(":4")) {
+            oDevice = dom.GetObject(oChannel.Device());
+            sDeviceName = oDevice.Name();
+            sDeviceType = oDevice.HssType();
+            
+            ! Type filter
+            if((sTypen == "") || (sTypen.Find(sDeviceType) != -1)) {
+              oDP = oChannel.DPByHssDP("LEVEL");
+              
+              if(oDP) {
+                iFound = iFound + 1;
+                
+                ! Check exclusion
+                bExclude = false;
+                if(sExclude != "") {
+                  foreach(sExcludeName, sExclude.Split(",")) {
+                    if(sDeviceName == sExcludeName) {
+                      bExclude = true;
+                      iExcluded = iExcluded + 1;
+                      if(bDebug) {
+                        WriteLine("  [X] EXCLUDED: " # sDeviceName # " [" # sDeviceType # "]");
+                      }
+                    }
+                  }
+                }
+                
+                if(!bExclude) {
+                  sProcessedChannels = sProcessedChannels # sChannelID # ",";
+                  
+                  if(!bDryRun) {
+                    var bResult = oDP.State(rTargetLevel);
+                    
+                    if(bResult) {
+                      iSuccess = iSuccess + 1;
+                      if(bDebug) {
+                        WriteLine("  [OK] " # sDeviceName # " [" # sDeviceType # "] -> " # rTargetLevel);
+                      }
+                    } else {
+                      iError = iError + 1;
+                      if(bErrorLog) {
+                        WriteLine("  [ERROR] " # sDeviceName # " [" # sDeviceType # "]");
+                      }
+                    }
+                  } else {
+                    iSuccess = iSuccess + 1;
+                    if(bDebug) {
+                      WriteLine("  [DRY] " # sDeviceName # " [" # sDeviceType # "] -> " # rTargetLevel);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      if(bDebug) { WriteLine("WARNING: Room '" # sRaumName # "' not found!"); }
+    }
+  }
+}
+
+! All devices (if neither functions nor rooms specified)
+if((sGewerke == "") && (sRaeume == "")) {
+  object oDevices = dom.GetObject(ID_DEVICES);
+  string sDeviceID;
+  
+  if(bDebug) { WriteLine(""); WriteLine("All devices (no filter)"); }
+  
+  foreach(sDeviceID, oDevices.EnumUsedIDs()) {
+    oDevice = dom.GetObject(sDeviceID);
+    sDeviceType = oDevice.HssType();
+    sDeviceName = oDevice.Name();
+    
+    ! Type filter
+    if((sTypen == "") || (sTypen.Find(sDeviceType) != -1)) {
+      string sDeviceChannelID;
+      
+      foreach(sDeviceChannelID, oDevice.Channels().EnumUsedIDs()) {
+        if(sProcessedChannels.Find("," # sDeviceChannelID # ",") == -1) {
+          oChannel = dom.GetObject(sDeviceChannelID);
+          
+          ! Only use Channel 4
+          if(oChannel.Name().EndsWith(":4")) {
+            oDP = oChannel.DPByHssDP("LEVEL");
+            
+            if(oDP) {
+              iFound = iFound + 1;
+              
+              ! Check exclusion
+              bExclude = false;
+              if(sExclude != "") {
+                foreach(sExcludeName, sExclude.Split(",")) {
+                  if(sDeviceName == sExcludeName) {
+                    bExclude = true;
+                    iExcluded = iExcluded + 1;
+                    if(bDebug) {
+                      WriteLine("  [X] EXCLUDED: " # sDeviceName # " [" # sDeviceType # "]");
+                    }
+                  }
+                }
+              }
+              
+              if(!bExclude) {
+                sProcessedChannels = sProcessedChannels # sDeviceChannelID # ",";
+                
+                if(!bDryRun) {
+                  var bResult = oDP.State(rTargetLevel);
+                  
+                  if(bResult) {
+                    iSuccess = iSuccess + 1;
+                    if(bDebug) {
+                      WriteLine("  [OK] " # sDeviceName # " [" # sDeviceType # "] -> " # rTargetLevel);
+                    }
+                  } else {
+                    iError = iError + 1;
+                    if(bErrorLog) {
+                      WriteLine("  [ERROR] " # sDeviceName # " [" # sDeviceType # "]");
+                    }
+                  }
+                } else {
+                  iSuccess = iSuccess + 1;
+                  if(bDebug) {
+                    WriteLine("  [DRY] " # sDeviceName # " [" # sDeviceType # "] -> " # rTargetLevel);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+!-----------------------------------------------------------------------
+! STATISTICS
+!-----------------------------------------------------------------------
+
+if(bShowStats) {
+  WriteLine("-------------------------------------------------------");
+  WriteLine("STATISTICS:");
+  WriteLine("  Found: " # iFound);
+  WriteLine("  Excluded: " # iExcluded);
+  WriteLine("  Controlled: " # (iSuccess + iError));
+  WriteLine("  Successful: " # iSuccess);
+  if(iError > 0) {
+    WriteLine("  Errors: " # iError);
+  }
+  WriteLine("-------------------------------------------------------");
+}
